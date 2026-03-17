@@ -1,0 +1,7 @@
+services: 
+  web: 
+    image: nginx 
+    deploy: 
+      resources: 
+        limits: 
+          memory: 512M 
