@@ -1,15 +1,48 @@
-name: Self-Healing Pipeline
+name: Self-Healing CI/CD Pipeline
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # Allows manual triggering
 
 jobs:
   self-heal:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - name: Run Self-Healing Agent
-        run: |
-          pip install -r requirements.txt
-          python healing_agent.py demo2/build.log
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Reset demo errors
+      run: |
+        chmod +x reset_demo.bat
+        ./reset_demo.bat
+    
+    - name: Run Self-Healing Agent
+      run: |
+        python healing_agent.py demo2/build.log
+    
+    - name: Show fixed files
+      run: |
+        echo "✅ Fixed package.json:"
+        cat demo2/package.json
+        echo ""
+        echo "✅ Fixed requirements.txt:"
+        cat demo2/requirements.txt
+        echo ""
+        echo "✅ Fixed docker-compose.yml:"
+        cat demo2/docker-compose.yml
+        echo ""
+        echo "✅ Fixed config.json:"
+        cat demo2/config.json
