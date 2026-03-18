@@ -1,2 +1,4 @@
 Django==3.2 
+django==4.0 
 flask==2.0 
+Flask==2.1 
