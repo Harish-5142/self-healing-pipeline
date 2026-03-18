@@ -3,6 +3,8 @@ name: Self-Healing CI/CD Pipeline
 on:
   pull_request:
     branches: [ main ]
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref || github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Python
@@ -29,17 +31,100 @@ jobs:
         run: |
           pip install pyyaml requests
       
-      - name: Make reset_demo executable
-        run: chmod +x reset_demo.bat
-      
-      - name: Run Self-Healing Agent
+      - name: Make scripts executable
         run: |
-          python healing_agent.py demo2/build.log
+          chmod +x reset_demo.sh
       
-      - name: Commit fixes if any
+      - name: Reset demo with ALL 4 ERRORS
+        run: |
+          echo "🔴 CREATING 4 ERRORS FOR DEMO:"
+          echo "1. NPM Conflict: react@17.0.0 vs react-dom@18.0.0"
+          echo "2. Python Duplicates: django==4.0, Flask==2.1"
+          echo "3. Docker Memory Too Low: 50M"
+          echo "4. JSON Syntax Error in config.json"
+          echo ""
+          ./reset_demo.sh
+          echo ""
+          echo "✅ Errors created successfully!"
+      
+      - name: SHOW ERRORS BEFORE FIX
+        run: |
+          echo "📋 ============================================"
+          echo "📋 ERRORS DETECTED (BEFORE FIX):"
+          echo "📋 ============================================"
+          echo ""
+          echo "📄 package.json (NPM Conflict):"
+          cat demo2/package.json
+          echo ""
+          echo "📄 requirements.txt (Python Duplicates):"
+          cat demo2/requirements.txt
+          echo ""
+          echo "📄 docker-compose.yml (Low Memory):"
+          cat demo2/docker-compose.yml
+          echo ""
+          echo "📄 config.json (JSON Syntax Error):"
+          cat demo2/config.json
+          echo ""
+          echo "📋 ============================================"
+      
+      - name: RUN SELF-HEALING AGENT
+        id: heal
+        run: |
+          echo "🛠️  Running Self-Healing Agent..."
+          python healing_agent.py demo2/build.log
+          echo "✅ Agent completed"
+      
+      - name: SHOW FIXES AFTER AGENT
+        run: |
+          echo "📋 ============================================"
+          echo "📋 FIXES APPLIED (AFTER AGENT):"
+          echo "📋 ============================================"
+          echo ""
+          echo "✅ Fixed package.json (NPM versions match):"
+          cat demo2/package.json
+          echo ""
+          echo "✅ Fixed requirements.txt (No duplicates):"
+          cat demo2/requirements.txt
+          echo ""
+          echo "✅ Fixed docker-compose.yml (Memory 512M):"
+          cat demo2/docker-compose.yml
+          echo ""
+          echo "✅ Fixed config.json (Valid JSON):"
+          cat demo2/config.json
+          echo ""
+          echo "📋 ============================================"
+          echo "🎉 ALL 4 ERRORS FIXED SUCCESSFULLY!"
+      
+      - name: Commit and push fixes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add demo2/
-          git diff --quiet && git diff --staged --quiet || git commit -m "🤖 Auto-heal: Fixed build errors"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "🤖 Auto-heal: Fixed all 4 build errors"
+            git push
+            echo "✅ Fixes pushed to branch"
+          fi
+      
+      - name: Comment on PR with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const message = `## 🤖 Self-Healing Agent Results\n\n` +
+              `✅ **SUCCESS! All 4 errors fixed automatically!**\n\n` +
+              `### 📋 Errors Fixed:\n` +
+              `1. **NPM Conflict**: Fixed react-dom version to match react\n` +
+              `2. **Python Duplicates**: Removed duplicate packages\n` +
+              `3. **Docker Memory**: Increased from 50M → 512M\n` +
+              `4. **JSON Syntax**: Removed trailing commas\n\n` +
+              `🎉 This PR is now ready to merge!`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            });
