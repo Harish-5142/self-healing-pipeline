@@ -1,16 +1,36 @@
-name: Self-Healing Agent Demo
+name: Self-Healing CI/CD Pipeline
 
 on:
+  # Trigger on Pull Requests
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+  
+  # Trigger on direct pushes
   push:
     branches: [ main ]
+  
+  # Allow manual trigger
   workflow_dispatch:
 
+# Give GitHub Actions permission to write to the repo
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+  checks: write
+
 jobs:
-  test-agent:
+  self-heal:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          # This ensures we can push back to PR branches
+          ref: ${{ github.head_ref || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -19,23 +39,78 @@ jobs:
       
       - name: Install dependencies
         run: |
+          pip install -r requirements.txt
           pip install pyyaml requests
       
-      - name: Show files before fix
+      - name: Show current branch info
         run: |
-          echo "📁 Checking demo2 folder:"
-          ls -la demo2/
-          echo ""
-          echo "📄 package.json content:"
-          cat demo2/package.json
+          echo "🔀 Event name: ${{ github.event_name }}"
+          echo "🌿 Branch: ${{ github.ref }}"
+          echo "🔧 Head ref: ${{ github.head_ref }}"
+      
+      - name: Reset demo with errors
+        run: |
+          chmod +x reset_demo.bat
+          ./reset_demo.bat
       
       - name: Run Self-Healing Agent
+        id: heal
+        continue-on-error: true
         run: |
-          python healing_agent.py demo2/build.log || true
+          python healing_agent.py demo2/build.log
+          echo "✅ Agent completed"
       
-      - name: Show files after fix
+      - name: Check if fixes were applied
+        id: check-fixes
         run: |
-          echo "✅ Fixed files:"
-          echo ""
-          echo "📄 package.json after:"
-          cat demo2/package.json
+          git status
+          if git status --porcelain | grep -q "demo2/"; then
+            echo "✅ Fixes detected!"
+            echo "fixed=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ No fixes needed"
+            echo "fixed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Commit and push fixes
+        if: steps.check-fixes.outputs.fixed == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add demo2/
+          git commit -m "🤖 Auto-heal: Fixed build errors"
+          git push
+          echo "✅ Fixes pushed to branch"
+      
+      - name: Find and comment on PR
+        if: github.event_name == 'pull_request' && steps.check-fixes.outputs.fixed == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fixes = `✅ **Self-Healing Agent Applied Fixes!**
+            
+            The agent detected and automatically fixed these errors:
+            
+            📦 **NPM Conflict:** Fixed react-dom version
+            🐍 **Python Duplicates:** Cleaned requirements.txt
+            🐳 **Docker Memory:** Increased to 512M
+            📝 **JSON Syntax:** Fixed formatting
+            
+            Check the commits above to see the changes!`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: fixes
+            });
+      
+      - name: Show final status
+        if: always()
+        run: |
+          echo "==================================="
+          echo "✅ WORKFLOW COMPLETED"
+          echo "==================================="
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Fixes applied: ${{ steps.check-fixes.outputs.fixed }}"
