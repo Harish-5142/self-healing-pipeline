@@ -1,0 +1,15 @@
+name: Self-Healing Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  self-heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Self-Healing Agent
+        run: |
+          pip install -r requirements.txt
+          python healing_agent.py demo2/build.log
